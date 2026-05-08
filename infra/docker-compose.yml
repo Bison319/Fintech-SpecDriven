@@ -1,0 +1,184 @@
+version: '3.9'
+
+services:
+
+  # ─── Databases ───────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: fintech-postgres
+    environment:
+      POSTGRES_USER: fintech
+      POSTGRES_PASSWORD: fintech_secret
+      POSTGRES_MULTIPLE_DATABASES: users_db,wallets_db,transactions_db,fraud_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fintech"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Message Broker ──────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: fintech-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── API Gateway ─────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ../api-gateway
+      dockerfile: Dockerfile
+    container_name: fintech-api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      USER_SERVICE_HOST: user-service
+      USER_SERVICE_PORT: 8081
+      WALLET_SERVICE_HOST: wallet-service
+      WALLET_SERVICE_PORT: 8082
+      TRANSACTION_SERVICE_HOST: transaction-service
+      TRANSACTION_SERVICE_PORT: 8083
+      FRAUD_SERVICE_HOST: fraud-service
+      FRAUD_SERVICE_PORT: 8084
+    depends_on:
+      user-service:
+        condition: service_healthy
+      wallet-service:
+        condition: service_healthy
+      transaction-service:
+        condition: service_healthy
+      fraud-service:
+        condition: service_healthy
+
+  # ─── User Service ────────────────────────────────────────────
+  user-service:
+    build:
+      context: ../services/user-service
+      dockerfile: Dockerfile
+    container_name: fintech-user-service
+    ports:
+      - "8081:8081"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: fintech
+      DB_PASSWORD: fintech_secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─── Wallet Service ──────────────────────────────────────────
+  wallet-service:
+    build:
+      context: ../services/wallet-service
+      dockerfile: Dockerfile
+    container_name: fintech-wallet-service
+    ports:
+      - "8082:8082"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: fintech
+      DB_PASSWORD: fintech_secret
+      USER_SERVICE_HOST: user-service
+      USER_SERVICE_PORT: 8081
+    depends_on:
+      postgres:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─── Transaction Service ─────────────────────────────────────
+  transaction-service:
+    build:
+      context: ../services/transaction-service
+      dockerfile: Dockerfile
+    container_name: fintech-transaction-service
+    ports:
+      - "8083:8083"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: fintech
+      DB_PASSWORD: fintech_secret
+      WALLET_SERVICE_HOST: wallet-service
+      WALLET_SERVICE_PORT: 8082
+      FRAUD_SERVICE_HOST: fraud-service
+      FRAUD_SERVICE_PORT: 8084
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      wallet-service:
+        condition: service_healthy
+      fraud-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─── Fraud Service ───────────────────────────────────────────
+  fraud-service:
+    build:
+      context: ../services/fraud-service
+      dockerfile: Dockerfile
+    container_name: fintech-fraud-service
+    ports:
+      - "8084:8084"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: fintech
+      DB_PASSWORD: fintech_secret
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:

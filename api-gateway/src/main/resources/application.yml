@@ -1,0 +1,98 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: user-service
+          uri: http://${USER_SERVICE_HOST:localhost}:${USER_SERVICE_PORT:8081}
+          predicates:
+            - Path=/api/v1/users/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: userServiceCB
+                fallbackUri: forward:/fallback/unavailable
+
+        - id: wallet-service
+          uri: http://${WALLET_SERVICE_HOST:localhost}:${WALLET_SERVICE_PORT:8082}
+          predicates:
+            - Path=/api/v1/wallets/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: walletServiceCB
+                fallbackUri: forward:/fallback/unavailable
+
+        - id: transaction-service
+          uri: http://${TRANSACTION_SERVICE_HOST:localhost}:${TRANSACTION_SERVICE_PORT:8083}
+          predicates:
+            - Path=/api/v1/transactions/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: transactionServiceCB
+                fallbackUri: forward:/fallback/unavailable
+
+        - id: fraud-service
+          uri: http://${FRAUD_SERVICE_HOST:localhost}:${FRAUD_SERVICE_PORT:8084}
+          predicates:
+            - Path=/api/v1/fraud/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: fraudServiceCB
+                fallbackUri: forward:/fallback/unavailable
+
+        # Swagger aggregation
+        - id: user-service-docs
+          uri: http://${USER_SERVICE_HOST:localhost}:${USER_SERVICE_PORT:8081}
+          predicates:
+            - Path=/user-service/api-docs/**
+          filters:
+            - StripPrefix=1
+
+        - id: wallet-service-docs
+          uri: http://${WALLET_SERVICE_HOST:localhost}:${WALLET_SERVICE_PORT:8082}
+          predicates:
+            - Path=/wallet-service/api-docs/**
+          filters:
+            - StripPrefix=1
+
+        - id: transaction-service-docs
+          uri: http://${TRANSACTION_SERVICE_HOST:localhost}:${TRANSACTION_SERVICE_PORT:8083}
+          predicates:
+            - Path=/transaction-service/api-docs/**
+          filters:
+            - StripPrefix=1
+
+        - id: fraud-service-docs
+          uri: http://${FRAUD_SERVICE_HOST:localhost}:${FRAUD_SERVICE_PORT:8084}
+          predicates:
+            - Path=/fraud-service/api-docs/**
+          filters:
+            - StripPrefix=1
+
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,gateway
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      enabled: true
+
+logging:
+  level:
+    org.springframework.cloud.gateway: DEBUG
+    com.fintech.gateway: DEBUG
+  pattern:
+    console: '{"timestamp":"%d{ISO8601}","level":"%level","service":"api-gateway","correlationId":"%X{correlationId}","logger":"%logger{36}","message":"%msg"}%n'
